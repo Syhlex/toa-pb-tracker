@@ -43,15 +43,14 @@ public class ToaPbTrackerPlugin extends Plugin {
     @Inject
     private Gson gson;
 
-    private static final Pattern CHALLENGE_DURATION = Pattern.compile("(?i)challenge completion time: <col=[0-9a-f]{6}>[0-9:.]+</col>\\. Personal best: (?:<col=ff0000>)?(?<pb>[0-9:]+(?:\\.[0-9]+)?)");
+    private static final Pattern CHALLENGE_DURATION = Pattern.compile("(?i)challenge completion time: <col=[0-9a-f]{6}>(?<time>[0-9:]+(?:\\.[0-9]+)?)</col>\\. Personal best: (?:<col=ff0000>)?(?<pb>[0-9:]+(?:\\.[0-9]+)?)");
     private static final Pattern CHALLENGE_DURATION_NEW_PB = Pattern.compile("(?i)challenge completion time: <col=[0-9a-f]{6}>(?<pb>[0-9:]+(?:\\.[0-9]+)?)</col> \\(new personal best\\)");
-    private static final Pattern TOTAL_DURATION = Pattern.compile("(?i)total completion time: <col=[0-9a-f]{6}>[0-9:.]+</col>\\. Personal best: (?:<col=ff0000>)?(?<pb>[0-9:]+(?:\\.[0-9]+)?)");
+    private static final Pattern TOTAL_DURATION = Pattern.compile("(?i)total completion time: <col=[0-9a-f]{6}>(?<time>[0-9:]+(?:\\.[0-9]+)?)</col>\\. Personal best: (?:<col=ff0000>)?(?<pb>[0-9:]+(?:\\.[0-9]+)?)");
     private static final Pattern TOTAL_DURATION_NEW_PB = Pattern.compile("(?i)total completion time: <col=[0-9a-f]{6}>(?<pb>[0-9:]+(?:\\.[0-9]+)?)</col> \\(new personal best\\)");
     private static final Pattern KILLCOUNT_PATTERN = Pattern.compile("Your completed (?<boss>.+?) count is: <col=[0-9a-f]{6}>(?<kc>[0-9,]+)</col>");
 
-    private double challengePbInSeconds;
-    private double totalPbInSeconds;
-    private boolean isNewPb = false;
+    private double challengeTimeInSeconds;
+    private double totalTimeInSeconds;
 
     private static final int RAID_PARTY_INTERFACE_GROUP_ID = 774;
     private static final int INVOCATIONS_SIDEPANEL = 50724921;
@@ -103,13 +102,19 @@ public class ToaPbTrackerPlugin extends Plugin {
 
         int teamSize = Integer.parseInt(membersTabText.getText().substring(9, 10)); // Gets n from "Members (n)"
 
-        double personalBest = getPbFromConfig(raidLevel, teamSize, CompletionType.CHALLENGE);
-        String pbTimeString = personalBest == -1 ? "N/A" : secondsToTimeString(personalBest);
+        PbInfo challengePbInfo = getPbFromConfig(raidLevel, teamSize, CompletionType.CHALLENGE);
+        double challengePb = challengePbInfo == null ? -1 : challengePbInfo.getPbTime();
+        String challengePbTimeString = challengePb == -1 ? "N/A" : secondsToTimeString(challengePb);
+
+        PbInfo totalPbInfo = getPbFromConfig(raidLevel, teamSize, CompletionType.TOTAL);
+        double totalPb = totalPbInfo == null ? -1 : totalPbInfo.getPbTime();
+        String totalPbTimeString = totalPb == -1 ? "N/A" : secondsToTimeString(totalPb);
 
         pbInfoPanel.setText(
             "Raid level: <col=ffffff>" + raidLevel + "</col><br>" +
                 "Team size: <col=ffffff>" + teamSize + "</col><br>" +
-                "Personal best: <col=ffffff>" + pbTimeString + "</col>"
+                "Challenge PB: <col=ffffff>" + challengePbTimeString + "</col><br>" +
+                "Total PB: <col=ffffff>" + totalPbTimeString + "</col>"
         );
         pbInfoPanel.revalidate();
     }
@@ -178,30 +183,26 @@ public class ToaPbTrackerPlugin extends Plugin {
 
         Matcher matcher = CHALLENGE_DURATION.matcher(message);
         if (matcher.find()) {
-            String pb = matcher.group("pb");
-            challengePbInSeconds = timeStringToSeconds(pb);
-            isNewPb = false;
+            String time = matcher.group("time");
+            challengeTimeInSeconds = timeStringToSeconds(time);
         }
 
         matcher = CHALLENGE_DURATION_NEW_PB.matcher(message);
         if (matcher.find()) {
             String pb = matcher.group("pb");
-            challengePbInSeconds = timeStringToSeconds(pb);
-            isNewPb = true;
+            challengeTimeInSeconds = timeStringToSeconds(pb);
         }
 
         matcher = TOTAL_DURATION.matcher(message);
         if (matcher.find()) {
-            String pb = matcher.group("pb");
-            totalPbInSeconds = timeStringToSeconds(pb);
-            isNewPb = false;
+            String time = matcher.group("time");
+            totalTimeInSeconds = timeStringToSeconds(time);
         }
 
         matcher = TOTAL_DURATION_NEW_PB.matcher(message);
         if (matcher.find()) {
             String pb = matcher.group("pb");
-            totalPbInSeconds = timeStringToSeconds(pb);
-            isNewPb = true;
+            totalTimeInSeconds = timeStringToSeconds(pb);
         }
 
         matcher = KILLCOUNT_PATTERN.matcher(message);
@@ -210,17 +211,19 @@ public class ToaPbTrackerPlugin extends Plugin {
             if (boss.contains("Tombs of Amascut")) {
                 int raidLevel = getRaidLevel();
                 int teamSize = getTeamSize();
-                String playerNames = isNewPb ? getPlayerNames(teamSize) : null;
+                String playerNames = getPlayerNames(teamSize);
 
-                double savedChallengePb = getPbFromConfig(raidLevel, teamSize, CompletionType.CHALLENGE);
-                double savedTotalPb = getPbFromConfig(raidLevel, teamSize, CompletionType.TOTAL);
+                PbInfo savedChallengePbInfo = getPbFromConfig(raidLevel, teamSize, CompletionType.CHALLENGE);
+                double savedChallengePb = savedChallengePbInfo == null ? -1 : savedChallengePbInfo.getPbTime();
+                PbInfo savedTotalPbInfo = getPbFromConfig(raidLevel, teamSize, CompletionType.TOTAL);
+                double savedTotalPb = savedTotalPbInfo == null ? -1 : savedTotalPbInfo.getPbTime();
 
-                if (savedChallengePb == -1 || challengePbInSeconds < savedChallengePb) {
-                    updatePbInConfig(new PbInfo(raidLevel, teamSize, CompletionType.CHALLENGE, challengePbInSeconds, playerNames));
+                if (savedChallengePb == -1 || challengeTimeInSeconds < savedChallengePb) {
+                    updatePbInConfig(new PbInfo(raidLevel, teamSize, CompletionType.CHALLENGE, challengeTimeInSeconds, playerNames));
                 }
 
-                if (savedTotalPb == -1 || totalPbInSeconds < savedTotalPb) {
-                    updatePbInConfig(new PbInfo(raidLevel, teamSize, CompletionType.TOTAL, totalPbInSeconds, playerNames));
+                if (savedTotalPb == -1 || totalTimeInSeconds < savedTotalPb) {
+                    updatePbInConfig(new PbInfo(raidLevel, teamSize, CompletionType.TOTAL, totalTimeInSeconds, playerNames));
                 }
             }
         }
@@ -256,11 +259,10 @@ public class ToaPbTrackerPlugin extends Plugin {
         return raidLevel + "-" + teamSize + "-" + completionType;
     }
 
-    private double getPbFromConfig(int raidLevel, int teamSize, CompletionType completionType) {
+    private PbInfo getPbFromConfig(int raidLevel, int teamSize, CompletionType completionType) {
         String key = getConfigKey(raidLevel, teamSize, completionType);
         String pbInfoSerialized = configManager.getRSProfileConfiguration(ToaPbTrackerConfig.GROUP, key);
-        PbInfo pbInfo = gson.fromJson(pbInfoSerialized, PbInfo.class);
-        return pbInfo == null ? -1 : pbInfo.getPbTime();
+        return gson.fromJson(pbInfoSerialized, PbInfo.class);
     }
 
     private void updatePbInConfig(PbInfo pbInfo) {
