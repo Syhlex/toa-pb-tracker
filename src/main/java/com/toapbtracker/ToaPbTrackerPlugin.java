@@ -8,16 +8,20 @@ import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.ChatMessage;
-import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.ScriptPostFired;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.widgets.*;
 import net.runelite.client.callback.ClientThread;
+import net.runelite.client.chat.ChatColorType;
+import net.runelite.client.chat.ChatMessageBuilder;
+import net.runelite.client.chat.ChatMessageManager;
+import net.runelite.client.chat.QueuedMessage;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -42,6 +46,9 @@ public class ToaPbTrackerPlugin extends Plugin {
 
     @Inject
     private Gson gson;
+
+    @Inject
+    private ChatMessageManager chatMessageManager;
 
     private static final Pattern CHALLENGE_DURATION = Pattern.compile("(?i)challenge completion time: <col=[0-9a-f]{6}>(?<time>[0-9:]+(?:\\.[0-9]+)?)</col>\\. Personal best: (?:<col=ff0000>)?(?<pb>[0-9:]+(?:\\.[0-9]+)?)");
     private static final Pattern CHALLENGE_DURATION_NEW_PB = Pattern.compile("(?i)challenge completion time: <col=[0-9a-f]{6}>(?<pb>[0-9:]+(?:\\.[0-9]+)?)</col> \\(new personal best\\)");
@@ -138,7 +145,7 @@ public class ToaPbTrackerPlugin extends Plugin {
         }
 
 
-        Widget members = client.getWidget(773, 5);
+        Widget members = client.getWidget(InterfaceID.TOA_PARTY, 5);
         if (members == null) {
             return;
         }
@@ -163,14 +170,6 @@ public class ToaPbTrackerPlugin extends Plugin {
         }
 
         createPbInfoPanel();
-    }
-
-
-    @Subscribe
-    public void onGameStateChanged(GameStateChanged gameStateChanged) {
-        if (gameStateChanged.getGameState() == GameState.LOGGED_IN) {
-            printAllPbs();
-        }
     }
 
     @Subscribe
@@ -220,10 +219,12 @@ public class ToaPbTrackerPlugin extends Plugin {
 
                 if (savedChallengePb == -1 || challengeTimeInSeconds < savedChallengePb) {
                     updatePbInConfig(new PbInfo(raidLevel, teamSize, CompletionType.CHALLENGE, challengeTimeInSeconds, playerNames));
+                    sendNewPbMessage(raidLevel, teamSize, CompletionType.CHALLENGE, challengeTimeInSeconds);
                 }
 
                 if (savedTotalPb == -1 || totalTimeInSeconds < savedTotalPb) {
                     updatePbInConfig(new PbInfo(raidLevel, teamSize, CompletionType.TOTAL, totalTimeInSeconds, playerNames));
+                    sendNewPbMessage(raidLevel, teamSize, CompletionType.TOTAL, totalTimeInSeconds);
                 }
             }
         }
@@ -270,21 +271,7 @@ public class ToaPbTrackerPlugin extends Plugin {
         configManager.setRSProfileConfiguration(ToaPbTrackerConfig.GROUP, key, gson.toJson(pbInfo));
     }
 
-    private void printAllPbs() {
-        List<String> keys = configManager.getRSProfileConfigurationKeys(ToaPbTrackerConfig.GROUP, configManager.getRSProfileKey(), "");
-        keys.forEach(key -> {
-            log.info(configManager.getRSProfileConfiguration(ToaPbTrackerConfig.GROUP, key));
-        });
-    }
-
-    private void clearAllPbs() {
-        List<String> keys = configManager.getRSProfileConfigurationKeys(ToaPbTrackerConfig.GROUP, configManager.getRSProfileKey(), "");
-        keys.forEach(key -> {
-            configManager.unsetRSProfileConfiguration(ToaPbTrackerConfig.GROUP, key);
-        });
-    }
-
-    private static double timeStringToSeconds(String timeString) {
+    private double timeStringToSeconds(String timeString) {
         String[] s = timeString.split(":");
         if (s.length == 2) // mm:ss
         {
@@ -296,7 +283,7 @@ public class ToaPbTrackerPlugin extends Plugin {
         return Double.parseDouble(timeString);
     }
 
-    private static String secondsToTimeString(double seconds) {
+    private String secondsToTimeString(double seconds) {
         int hours = (int) (Math.floor(seconds) / 3600);
         int minutes = (int) (Math.floor(seconds / 60) % 60);
         seconds = seconds % 60;
@@ -306,5 +293,27 @@ public class ToaPbTrackerPlugin extends Plugin {
         // If the seconds is an integer, it is ambiguous if the pb is a precise
         // pb or not. So we always show it without the trailing .00.
         return timeString + (Math.floor(seconds) == seconds ? String.format("%02d", (int) seconds) : String.format("%05.2f", seconds));
+    }
+
+    private void sendNewPbMessage(int raidLevel, int teamSize, CompletionType completionType, double pb) {
+        String newPbMessage = new ChatMessageBuilder()
+            .append(ChatColorType.NORMAL)
+            .append(completionType == CompletionType.CHALLENGE ? "Challenge" : "Total")
+            .append(" pb for raid level ")
+            .append(Color.BLUE, String.valueOf(raidLevel))
+            .append(ChatColorType.NORMAL)
+            .append(", team size ")
+            .append(Color.BLUE, String.valueOf(teamSize))
+            .append(ChatColorType.NORMAL)
+            .append(" updated: ")
+            .append(ChatColorType.HIGHLIGHT)
+            .append(secondsToTimeString(pb))
+            .build();
+
+        chatMessageManager.queue(QueuedMessage.builder()
+            .type(ChatMessageType.CONSOLE)
+            .sender("ToA PB Tracker")
+            .runeLiteFormattedMessage(newPbMessage)
+            .build());
     }
 }
