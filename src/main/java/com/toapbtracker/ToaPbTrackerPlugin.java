@@ -152,8 +152,8 @@ public class ToaPbTrackerPlugin extends Plugin {
 
         pbInfoPanel = invocationsSidepanel.createChild(2, WidgetType.TEXT);
         pbInfoPanel.setWidthMode(WidgetSizeMode.MINUS);
-        pbInfoPanel.setOriginalHeight(166);
-        pbInfoPanel.setOriginalY(215);
+        pbInfoPanel.setOriginalHeight(112);
+        pbInfoPanel.setOriginalY(270);
         pbInfoPanel.setXTextAlignment(WidgetTextAlignment.CENTER);
         pbInfoPanel.setYTextAlignment(WidgetTextAlignment.CENTER);
         pbInfoPanel.setTextShadowed(true);
