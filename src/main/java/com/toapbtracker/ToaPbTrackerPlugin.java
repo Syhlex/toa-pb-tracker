@@ -144,12 +144,6 @@ public class ToaPbTrackerPlugin extends Plugin {
             }
         }
 
-
-        Widget members = client.getWidget(InterfaceID.TOA_PARTY, 5);
-        if (members == null) {
-            return;
-        }
-
         pbInfoPanel = invocationsSidepanel.createChild(2, WidgetType.TEXT);
         pbInfoPanel.setWidthMode(WidgetSizeMode.MINUS);
         pbInfoPanel.setOriginalHeight(112);
